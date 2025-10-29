@@ -1,0 +1,29 @@
+[package]
+name = "reverse-ssh"
+version = "0.1.0"
+edition = "2021"
+authors = ["enzinol@gmail.com"]
+description = "A Rust library for creating reverse SSH tunnels with automatic URL capture from services like localhost.run"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aovestdipaperino/rrp"
+homepage = "https://github.com/aovestdipaperino/rrp"
+documentation = "https://docs.rs/reverse-ssh"
+readme = "README.md"
+keywords = ["ssh", "tunnel", "reverse-ssh", "port-forwarding", "localhost-run"]
+categories = ["network-programming", "command-line-utilities", "web-programming"]
+exclude = [
+    ".gitignore",
+    ".git/**",
+]
+
+[dependencies]
+russh = "0.45"
+russh-keys = "0.45"
+tokio = { version = "1.42", features = ["full"] }
+anyhow = "1.0"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+chrono = "0.4"

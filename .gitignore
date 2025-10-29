@@ -1,0 +1,26 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated files
+*.log
+*.tmp
+
+# SSH keys (for testing)
+*.pem
+*.key
+test_keys/
+
+# OS
+.DS_Store
+Thumbs.db
