@@ -1,6 +1,6 @@
 [package]
 name = "reverse-ssh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["enzinol@gmail.com"]
 description = "A Rust library for creating reverse SSH tunnels with automatic URL capture from services like localhost.run"
