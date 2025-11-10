@@ -5,6 +5,7 @@ use russh::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
+
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -60,11 +61,15 @@ impl client::Handler for Client {
     ) -> Result<(), Self::Error> {
         info!(
             "Server opened forwarded channel: {}:{} -> {}:{}",
+        debug!(
+            "Forwarded channel: {}:{} -> {}:{}",
             originator_address, originator_port, connected_address, connected_port
         );
 
         // Send the channel to be handled
-        let _ = self.tx.send((channel, connected_address.to_string(), connected_port));
+        let _ = self
+            .tx
+            .send((channel, connected_address.to_string(), connected_port));
 
         Ok(())
     }
@@ -82,7 +87,11 @@ impl client::Handler for Client {
             let _ = self.message_tx.send(message);
         } else {
             // Log if we received non-UTF8 data
-            debug!("Received {} bytes of non-UTF8 data on channel {:?}", data.len(), _channel);
+            debug!(
+                "Received {} bytes of non-UTF8 data on channel {:?}",
+                data.len(),
+                _channel
+            );
         }
         Ok(())
     }
@@ -100,7 +109,12 @@ impl client::Handler for Client {
             info!("Received extended data (type {}): {}", ext, message);
             let _ = self.message_tx.send(message);
         }
-        debug!("Received {} bytes of extended data (type {}) on channel {:?}", data.len(), ext, _channel);
+        debug!(
+            "Received {} bytes of extended data (type {}) on channel {:?}",
+            data.len(),
+            ext,
+            _channel
+        );
         Ok(())
     }
 }
@@ -135,7 +149,10 @@ impl ReverseSshClient {
         tx: mpsc::UnboundedSender<(Channel<Msg>, String, u32)>,
         message_tx: mpsc::UnboundedSender<String>,
     ) -> Result<()> {
-        info!("Connecting to SSH server {}:{}", self.config.server_addr, self.config.server_port);
+        info!(
+            "Connecting to SSH server {}:{}",
+            self.config.server_addr, self.config.server_port
+        );
 
         let client_config = client::Config {
             inactivity_timeout: Some(std::time::Duration::from_secs(3600)),
@@ -216,7 +233,10 @@ impl ReverseSshClient {
                 // The channel will be kept alive by the handler
             }
             Err(e) => {
-                warn!("Could not open shell session: {} (this may be normal for some servers)", e);
+                warn!(
+                    "Could not open shell session: {} (this may be normal for some servers)",
+                    e
+                );
             }
         }
 
@@ -225,6 +245,7 @@ impl ReverseSshClient {
 
     /// Read server messages (useful for services like localhost.run that send URL info)
     /// This opens a session channel and attempts to read any messages from the server
+    #[allow(dead_code)]
     pub async fn read_server_messages(&mut self) -> Result<Vec<String>> {
         let handle = self
             .handle
@@ -261,7 +282,10 @@ impl ReverseSshClient {
     }
 
     /// Handle forwarded connections from the SSH server
-    pub async fn handle_forwarded_connections(&mut self, mut rx: mpsc::UnboundedReceiver<(Channel<Msg>, String, u32)>) -> Result<()> {
+    pub async fn handle_forwarded_connections(
+        &mut self,
+        mut rx: mpsc::UnboundedReceiver<(Channel<Msg>, String, u32)>,
+    ) -> Result<()> {
         info!("Waiting for forwarded connections...");
 
         while let Some((channel, _remote_addr, _remote_port)) = rx.recv().await {
@@ -283,6 +307,7 @@ impl ReverseSshClient {
     }
 
     /// Run the reverse SSH client (connect, setup tunnel, and handle connections)
+    #[allow(dead_code)]
     pub async fn run(&mut self) -> Result<()> {
         let (tx, rx) = mpsc::unbounded_channel();
         let (message_tx, mut message_rx) = mpsc::unbounded_channel();
@@ -330,11 +355,14 @@ impl ReverseSshClient {
 }
 
 /// Handle a single forwarded connection by proxying data between SSH channel and local service
+async fn handle_connection(channel: Channel<Msg>, local_addr: &str, local_port: u16) -> Result<()> {
 async fn handle_connection(
-    channel: Channel<Msg>,
+    mut channel: Channel<Msg>,
     local_addr: &str,
     local_port: u16,
 ) -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     info!("Connecting to local service {}:{}", local_addr, local_port);
 
     // Connect to the local service
@@ -350,9 +378,12 @@ async fn handle_connection(
 
     // For now, we'll implement a simple bidirectional proxy
     // Note: The russh Channel API may need adjustment based on actual usage
+    info!("Connected to local service, starting bidirectional proxy");
 
     // Create a simple buffer for reading from local service
     let mut buffer = vec![0u8; 8192];
+    // Bidirectional proxy using tokio::select!
+    let mut local_buf = vec![0u8; 8192];
 
     // Read from local and forward to SSH
     loop {
@@ -367,20 +398,70 @@ async fn handle_connection(
                 if let Err(e) = channel.data(&buffer[..n]).await {
                     error!("Failed to send data to SSH channel: {}", e);
                     break;
+        tokio::select! {
+            // Read from SSH channel and write to local service
+            msg = channel.wait() => {
+                match msg {
+                    Some(russh::ChannelMsg::Data { data }) => {
+                        debug!("Received {} bytes from SSH channel", data.len());
+                        if let Err(e) = local_stream.write_all(&data).await {
+                            error!("Failed to write to local service: {}", e);
+                            break;
+                        }
+                    }
+                    Some(russh::ChannelMsg::Eof) => {
+                        debug!("Received EOF from SSH channel");
+                        let _ = local_stream.shutdown().await;
+                        break;
+                    }
+                    Some(russh::ChannelMsg::Close) => {
+                        debug!("SSH channel closed");
+                        break;
+                    }
+                    Some(other) => {
+                        debug!("Received other channel message: {:?}", other);
+                    }
+                    None => {
+                        debug!("SSH channel receiver closed");
+                        break;
+                    }
                 }
             }
             Err(e) => {
                 error!("Error reading from local service: {}", e);
                 break;
+
+            // Read from local service and write to SSH channel
+            result = local_stream.read(&mut local_buf) => {
+                match result {
+                    Ok(0) => {
+                        debug!("Local connection closed");
+                        break;
+                    }
+                    Ok(n) => {
+                        debug!("Read {} bytes from local service", n);
+                        if let Err(e) = channel.data(&local_buf[..n]).await {
+                            error!("Failed to send data to SSH channel: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error reading from local service: {}", e);
+                        break;
+                    }
+                }
             }
         }
     }
 
     // Close the channel
+    // Close the channel gracefully
     let _ = channel.eof().await;
     let _ = channel.close().await;
 
     info!("Connection closed");
+    info!("Connection proxy closed");
+
     Ok(())
 }
 
