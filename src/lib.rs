@@ -4,8 +4,6 @@ use russh::keys::*;
 use russh::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
-
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -59,8 +57,6 @@ impl client::Handler for Client {
         originator_port: u32,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        info!(
-            "Server opened forwarded channel: {}:{} -> {}:{}",
         debug!(
             "Forwarded channel: {}:{} -> {}:{}",
             originator_address, originator_port, connected_address, connected_port
@@ -355,7 +351,6 @@ impl ReverseSshClient {
 }
 
 /// Handle a single forwarded connection by proxying data between SSH channel and local service
-async fn handle_connection(channel: Channel<Msg>, local_addr: &str, local_port: u16) -> Result<()> {
 async fn handle_connection(
     mut channel: Channel<Msg>,
     local_addr: &str,
@@ -374,30 +369,13 @@ async fn handle_connection(
         .await
         .context("Failed to connect to local service")?;
 
-    info!("Connected to local service, starting proxy");
-
-    // For now, we'll implement a simple bidirectional proxy
-    // Note: The russh Channel API may need adjustment based on actual usage
     info!("Connected to local service, starting bidirectional proxy");
 
-    // Create a simple buffer for reading from local service
-    let mut buffer = vec![0u8; 8192];
     // Bidirectional proxy using tokio::select!
     let mut local_buf = vec![0u8; 8192];
 
     // Read from local and forward to SSH
     loop {
-        match local_stream.read(&mut buffer).await {
-            Ok(0) => {
-                debug!("Local connection closed");
-                break;
-            }
-            Ok(n) => {
-                debug!("Read {} bytes from local service", n);
-                // Send data through SSH channel
-                if let Err(e) = channel.data(&buffer[..n]).await {
-                    error!("Failed to send data to SSH channel: {}", e);
-                    break;
         tokio::select! {
             // Read from SSH channel and write to local service
             msg = channel.wait() => {
@@ -427,9 +405,6 @@ async fn handle_connection(
                     }
                 }
             }
-            Err(e) => {
-                error!("Error reading from local service: {}", e);
-                break;
 
             // Read from local service and write to SSH channel
             result = local_stream.read(&mut local_buf) => {
@@ -454,12 +429,10 @@ async fn handle_connection(
         }
     }
 
-    // Close the channel
     // Close the channel gracefully
     let _ = channel.eof().await;
     let _ = channel.close().await;
 
-    info!("Connection closed");
     info!("Connection proxy closed");
 
     Ok(())
