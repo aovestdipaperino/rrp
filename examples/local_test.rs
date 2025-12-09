@@ -137,6 +137,7 @@ async fn main() -> Result<()> {
         username: ssh_user,
         key_path: ssh_key,
         password: ssh_pass,
+        bind_address: String::new(),
         remote_port,
         local_addr: "127.0.0.1".to_string(),
         local_port,

@@ -20,6 +20,10 @@ async fn main() -> Result<()> {
         key_path: Some("/path/to/your/private/key".to_string()),
         password: None, // Or use password: Some("your-password".to_string())
 
+        // Bind address for the tunnel (used by pico.sh tuns for tunnel naming)
+        // Leave empty for localhost.run or to let the server choose
+        bind_address: String::new(),
+
         // Port mapping: SSH server will listen on remote_port
         // and forward connections to local_addr:local_port
         remote_port: 8080,

@@ -21,6 +21,11 @@ pub struct ReverseSshConfig {
     pub key_path: Option<String>,
     /// Password for authentication (if not using key)
     pub password: Option<String>,
+    /// Bind address for remote port forwarding.
+    /// For services like pico.sh tuns, this is the tunnel name (e.g., "dev" -> "user-dev.tuns.sh").
+    /// For localhost.run, use an empty string to let the server assign a random subdomain.
+    /// Defaults to empty string if not specified.
+    pub bind_address: String,
     /// Remote port to listen on (on the SSH server)
     pub remote_port: u32,
     /// Local address to forward connections to
@@ -199,16 +204,26 @@ impl ReverseSshClient {
             .as_mut()
             .context("Not connected - call connect() first")?;
 
-        info!(
-            "Setting up reverse tunnel: server port {} -> local {}:{}",
-            self.config.remote_port, self.config.local_addr, self.config.local_port
-        );
+        if self.config.bind_address.is_empty() {
+            info!(
+                "Setting up reverse tunnel: server port {} -> local {}:{}",
+                self.config.remote_port, self.config.local_addr, self.config.local_port
+            );
+        } else {
+            info!(
+                "Setting up reverse tunnel: {}:{} -> local {}:{}",
+                self.config.bind_address,
+                self.config.remote_port,
+                self.config.local_addr,
+                self.config.local_port
+            );
+        }
 
         // Request remote port forwarding
-        // Use empty string "" instead of "0.0.0.0" - this lets the SSH server choose
-        // the bind address. localhost.run requires this format.
+        // The bind_address is used for services like pico.sh tuns where it becomes
+        // the tunnel name (subdomain). For localhost.run, use empty string.
         handle
-            .tcpip_forward("", self.config.remote_port)
+            .tcpip_forward(&self.config.bind_address, self.config.remote_port)
             .await
             .context("Failed to set up remote port forwarding")?;
 
@@ -450,6 +465,7 @@ mod tests {
             username: "user".to_string(),
             key_path: Some("/path/to/key".to_string()),
             password: None,
+            bind_address: String::new(),
             remote_port: 8080,
             local_addr: "127.0.0.1".to_string(),
             local_port: 3000,
@@ -457,5 +473,25 @@ mod tests {
 
         assert_eq!(config.server_addr, "example.com");
         assert_eq!(config.remote_port, 8080);
+        assert!(config.bind_address.is_empty());
+    }
+
+    #[test]
+    fn test_config_with_bind_address() {
+        let config = ReverseSshConfig {
+            server_addr: "tuns.sh".to_string(),
+            server_port: 22,
+            username: "myuser".to_string(),
+            key_path: Some("/path/to/key".to_string()),
+            password: None,
+            bind_address: "dev".to_string(),
+            remote_port: 80,
+            local_addr: "127.0.0.1".to_string(),
+            local_port: 8000,
+        };
+
+        assert_eq!(config.server_addr, "tuns.sh");
+        assert_eq!(config.bind_address, "dev");
+        assert_eq!(config.remote_port, 80);
     }
 }

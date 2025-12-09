@@ -211,6 +211,9 @@ async fn main() -> Result<()> {
         key_path: Some(key_path),
         password: None,
 
+        // Empty bind_address lets localhost.run assign a random subdomain
+        bind_address: String::new(),
+
         // Port mapping:
         // - Remote port 80: localhost.run will assign a public URL
         // - Local port 8080: your local service
