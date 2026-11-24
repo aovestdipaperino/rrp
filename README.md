@@ -41,6 +41,9 @@ The fastest way to try reverse SSH tunneling:
 
 ```bash
 # 1. Clone and build
+
+[![GitHub stars](https://img.shields.io/github/stars/aovestdipaperino/rrp?logo=github&color=brightgreen)](https://github.com/aovestdipaperino/rrp/stargazers)
+
 git clone <your-repo-url>
 cd reverse-ssh
 
